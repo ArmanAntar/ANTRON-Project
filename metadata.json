@@ -1,0 +1,8 @@
+{
+  "name": "Copy of ANTRON - Unified Intelligence Engine final",
+  "description": "Personal AI orchestrator created by Arman Antar. Synthesizes multiple models into a single high-performance brain.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

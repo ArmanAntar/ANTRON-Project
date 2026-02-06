@@ -1,0 +1,31 @@
+
+{
+  "name": "antron-engine",
+  "version": "2.0.0",
+  "private": true,
+  "dependencies": {
+    "@google/genai": "^1.40.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.2",
+    "typescript": "^5.0.0",
+    "vite": "^4.3.9",
+    "@capacitor/core": "^5.0.0",
+    "@capacitor/cli": "^5.0.0",
+    "@capacitor/android": "^5.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap-init": "npx cap init",
+    "android-add": "npx cap add android",
+    "android-sync": "npx cap sync android",
+    "android-open": "npx cap open android"
+  }
+}
