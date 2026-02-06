@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Theme, Message, ChatSession, Attachment, VoiceName } from './types';
 import { THEME_CONFIG } from './constants';
 import ThemeSelector from './components/ThemeSelector';
-import { orchestrateSynthesis, setVoiceFunctionDeclaration } from './services/geminiService';
+import { orchestrateSynthesis } from './services/geminiService';
 import { GoogleGenAI, Modality } from '@google/genai';
 
 const App: React.FC = () => {
@@ -40,13 +40,10 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const themeConfig = THEME_CONFIG[theme];
 
-  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const apiKey = process.env.API_KEY || '';
+  const apiKeyMissing = !apiKey || apiKey === '';
 
-  useEffect(() => {
-    if (!process.env.API_KEY) {
-      console.error("CRITICAL: API_KEY is missing. Set it in Netlify Environment Variables.");
-    }
-  }, []);
+  const activeSession = sessions.find(s => s.id === activeSessionId);
 
   useEffect(() => {
     if (loading) {
@@ -77,11 +74,35 @@ const App: React.FC = () => {
     }
   }, [activeSession?.messages, loading]);
 
+  const decode = (base64: string) => {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
+  };
+
+  const decodeAudioData = async (data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> => {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+    return buffer;
+  };
+
+  const encode = (bytes: Uint8Array) => {
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  };
+
   const handleTTS = async (text: string, msgId: string) => {
-    if (isSpeakingMessage === msgId) return;
+    if (isSpeakingMessage === msgId || apiKeyMissing) return;
     setIsSpeakingMessage(msgId);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Vocal Signature ${activeVoice} activated: ${text}` }] }],
@@ -116,34 +137,10 @@ const App: React.FC = () => {
     }
   };
 
-  const decode = (base64: string) => {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-    return bytes;
-  };
-
-  const decodeAudioData = async (data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> => {
-    const dataInt16 = new Int16Array(data.buffer);
-    const frameCount = dataInt16.length / numChannels;
-    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-    for (let channel = 0; channel < numChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-    return buffer;
-  };
-
-  const encode = (bytes: Uint8Array) => {
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
-  };
-
   const handleSend = async () => {
     if (!query.trim() && !selectedFile) return;
-    if (!process.env.API_KEY) {
-      alert("Neural Node Error: API Key is not configured in Netlify.");
+    if (apiKeyMissing) {
+      alert("Neural Node Error: API Key is missing. Please add API_KEY to Netlify Environment Variables.");
       return;
     }
     let currentSessionId = activeSessionId || Date.now().toString();
@@ -169,14 +166,6 @@ const App: React.FC = () => {
         imageResponse: res.imageResponse 
       };
       setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, aiMsg], lastUpdate: Date.now() } : s));
-      
-      // Update voice if model calls the tool
-      res.toolCalls?.forEach(tc => {
-        if (tc.name === 'setVoiceSignature') {
-          setActiveVoice(tc.args.voice);
-          console.log(`Neural Update: Vocal Signature set to ${tc.args.voice}`);
-        }
-      });
     } catch (err) {
       const errMsg: Message = { id: Date.now().toString(), role: 'assistant', content: "Insha'Allah, recovering logic path. Node recalibration active.", timestamp: Date.now() };
       setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, errMsg], lastUpdate: Date.now() } : s));
@@ -192,7 +181,7 @@ const App: React.FC = () => {
   };
 
   const startLiveMode = async (withCamera: boolean) => {
-    if (!process.env.API_KEY) {
+    if (apiKeyMissing) {
       alert("Neural Link Error: Missing API Key.");
       return;
     }
@@ -201,7 +190,6 @@ const App: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withCamera });
       currentStreamRef.current = stream;
 
-      // Ensure camera renders
       if (withCamera && hiddenVideoRef.current) { 
         hiddenVideoRef.current.srcObject = stream;
         hiddenVideoRef.current.onloadedmetadata = () => {
@@ -210,7 +198,7 @@ const App: React.FC = () => {
         };
       }
       
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       outAudioContextRef.current = outCtx;
 
@@ -312,6 +300,22 @@ const App: React.FC = () => {
       <video ref={hiddenVideoRef} autoPlay playsInline muted className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* API KEY SETUP OVERLAY */}
+      {apiKeyMissing && (
+        <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-20 h-20 mb-8 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center animate-pulse">
+            <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+          </div>
+          <h1 className="text-3xl font-serif-elegant text-amber-500 mb-4 tracking-widest uppercase italic">Neural Link Offline</h1>
+          <p className="max-w-md text-white/60 text-sm mb-10 leading-relaxed uppercase tracking-tighter">
+            ANTRON requires a Sovereign API Key to activate its core intelligence nodes. Please configure <span className="text-amber-400 font-bold">API_KEY</span> in your Netlify Environment Variables.
+          </p>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="px-10 py-4 bg-amber-500 text-black font-black tracking-widest uppercase text-[10px] rounded-full hover:bg-amber-400 transition-all shadow-[0_0_30px_rgba(251,191,36,0.2)]">
+            Obtain API Key from Google AI Studio
+          </a>
+        </div>
+      )}
+
       {/* Live Overlay */}
       {liveStatus !== 'idle' && (
         <div className="fixed inset-0 z-[100] bg-black/98 backdrop-blur-3xl flex flex-col items-center justify-center p-6 animate-in fade-in duration-700">
@@ -343,7 +347,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Sidebar - Compact Standard */}
+      {/* Sidebar */}
       <aside className={`${isSidebarOpen ? 'w-64' : 'w-0'} ${themeConfig.sidebar} border-r ${themeConfig.border} transition-all duration-500 flex flex-col overflow-hidden shadow-xl`}>
         <div className="p-6 border-b border-white/5">
           <div className="flex items-center justify-between">
@@ -382,7 +386,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Interface - Optimized Scaling */}
+      {/* Main Interface */}
       <main className="flex-1 flex flex-col min-w-0 relative">
         <header className="h-16 flex items-center justify-between px-8 border-b border-white/5 backdrop-blur-2xl bg-black/5 z-10">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2.5 hover:bg-white/5 rounded-xl transition-all border border-white/5 shadow-inner">
