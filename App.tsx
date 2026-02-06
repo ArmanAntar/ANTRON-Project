@@ -43,6 +43,12 @@ const App: React.FC = () => {
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   useEffect(() => {
+    if (!process.env.API_KEY) {
+      console.error("CRITICAL: API_KEY is missing. Set it in Netlify Environment Variables.");
+    }
+  }, []);
+
+  useEffect(() => {
     if (loading) {
       const texts = [
         "Bismillah. Accessing Sovereign Stack...",
@@ -136,6 +142,10 @@ const App: React.FC = () => {
 
   const handleSend = async () => {
     if (!query.trim() && !selectedFile) return;
+    if (!process.env.API_KEY) {
+      alert("Neural Node Error: API Key is not configured in Netlify.");
+      return;
+    }
     let currentSessionId = activeSessionId || Date.now().toString();
     if (!activeSessionId) {
       const newSession: ChatSession = { id: currentSessionId, title: query.substring(0, 20) || "Mandate Engagement", messages: [], isPinned: false, lastUpdate: Date.now() };
@@ -182,6 +192,10 @@ const App: React.FC = () => {
   };
 
   const startLiveMode = async (withCamera: boolean) => {
+    if (!process.env.API_KEY) {
+      alert("Neural Link Error: Missing API Key.");
+      return;
+    }
     setLiveStatus('connecting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: withCamera });
